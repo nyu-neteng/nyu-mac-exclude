@@ -4,6 +4,7 @@ __author__ = 'joshs@nyu.edu'
 from netmiko import ConnectHandler
 from ConfigParser import SafeConfigParser
 import argparse
+import re
 
 aparser = argparse.ArgumentParser("Blocks/Unblocks a MAC address on the WLCs. Format is \"nyu-mac-exclude.py <macaddress> <block,unblock> <ticket# as description>\"")
 aparser.add_argument("mac", help="the mac address of the client to block")
@@ -26,7 +27,8 @@ def send_command(mac, action, description, wlc, uname, pword):
 
     command = "config exclusionlist %s %s %s" % (action, mac, description)
     #print command
-    output = net_connect.send_command(command)
+    output = net_connect.send_config_set([command, 'save config', 'y'])
+
     return output
 
 
@@ -39,4 +41,8 @@ for wlc in wlcs:
     elif args.action == "unblock":
         output = send_command(args.mac, "delete", "", wlc, uname, pword)
 
-    print output
+    if output != "":
+        if any(re.findall(r'error|incorrect|already exists', output, re.IGNORECASE)):
+            print output
+        else:
+            print "Added block of %s to %s" % (args.mac, wlc)
