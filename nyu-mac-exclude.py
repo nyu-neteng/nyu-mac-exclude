@@ -31,6 +31,14 @@ def send_command(mac, action, description, wlc, uname, pword):
 
     return output
 
+def error_stuff(data, action, mac, wlc):
+    if data != "":
+        if any(re.findall(r'error|incorrect', data, re.IGNORECASE)):
+            print data
+        elif "already exists" in data:
+            print "Block of %s already exists on %s" % (mac, wlc)
+        else:
+            print "%s of %s to %s completed" % (action, mac, wlc)
 
 wlcs = {}
 wlcs = cparser.options('wlcs')
@@ -38,11 +46,7 @@ wlcs = cparser.options('wlcs')
 for wlc in wlcs:
     if args.action == "block":
         output = send_command(args.mac, "add", args.description, wlc, uname, pword)
+        error_stuff(output, "add", args.mac, wlc)
     elif args.action == "unblock":
         output = send_command(args.mac, "delete", "", wlc, uname, pword)
-
-    if output != "":
-        if any(re.findall(r'error|incorrect|already exists', output, re.IGNORECASE)):
-            print output
-        else:
-            print "Added block of %s to %s" % (args.mac, wlc)
+        error_stuff(output, "delete", args.mac, wlc)
