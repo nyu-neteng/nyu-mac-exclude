@@ -3,50 +3,103 @@ __author__ = 'joshs@nyu.edu'
 
 from netmiko import ConnectHandler
 from ConfigParser import SafeConfigParser
+from concurrent.futures import ThreadPoolExecutor
 import argparse
 import re
+import sys
+import validators
 
-aparser = argparse.ArgumentParser("Blocks/Unblocks a MAC address on the WLCs. Format is \"nyu-mac-exclude.py <macaddress> <block,unblock> <ticket# as description>\"")
-aparser.add_argument("mac", help="the mac address of the client to block")
-aparser.add_argument("action", choices=['block','unblock'], help="block or unblock")
-aparser.add_argument("description", help="ticket information")
+class MyParser(argparse.ArgumentParser):
+    def error(self, message):
+        sys.stderr.write('Error: %s\n' % message)
+        self.print_help()
+        sys.exit(2)
 
-args = aparser.parse_args()
+class Router(object):
+    def __init__(self, wlc, username, password):
+        self.type = 'cisco_wlc'
+        self.wlc = wlc
+        self.username = username
+        self.password = password
+        self.timeout = 15
 
 cparser = SafeConfigParser(allow_no_value=True)
 cparser.read(['secret.conf', 'wlcs.conf'])
 uname = cparser.get('secret', 'username')
 pword = cparser.get('secret', 'password')
 
-def send_command(mac, action, description, wlc, uname, pword):
-    try:
-        net_connect = ConnectHandler(device_type='cisco_wlc', ip=wlc, username=uname, password=pword, timeout=15)
-    except Exception:
-        err_output = "Error connecting to host: " + wlc
-        return err_output
-
-    command = "config exclusionlist %s %s %s" % (action, mac, description)
-    #print command
-    output = net_connect.send_config_set([command, 'save config', 'y'])
-
-    return output
-
-def error_stuff(data, action, mac, wlc):
-    if data != "":
-        if any(re.findall(r'error|incorrect', data, re.IGNORECASE)):
-            print data
-        elif "already exists" in data:
-            print "Block of %s already exists on %s" % (mac, wlc)
-        else:
-            print "%s of %s to %s completed" % (action, mac, wlc)
-
-wlcs = {}
+thread = ThreadPoolExecutor(max_workers=30)
+wlcs = []
 wlcs = cparser.options('wlcs')
+d_routers = {}
+routers = {}
+
+aparser = MyParser()
+aparser.add_argument('-m', '--mac', required=True, help="the mac address of the client")
+aparser.add_argument('-a', '--action', required=True, choices=['block','unblock', 'search'], help="block, unblock or search")
+aparser.add_argument('-c', '--comment', required=False, help="ticket information")
+
+if len(sys.argv) == 1:
+    print('Error: No arguments supplied')
+    aparser.print_help()
+    sys.exit(1)
+
+args = aparser.parse_args()
+
+if validators.mac_address(args.mac) is not True:
+    print "Your MAC address appears invalid, closing"
+    sys.exit(1)
+elif args.action == "block" and not args.comment:
+    print "You selected block but comment is missing, closing"
+    aparser.print_help()
+    sys.exit(1)
+elif re.findall(r'unblock|search', args.action, re.IGNORECASE):
+    args.comment = ""
+
+
+def send_it(wlc, action, mac, comment):
+    try:
+        net_connect = ConnectHandler(**wlc)
+    except Exception:
+        err_output = "Error connecting to host: " + wlc['ip']
+        print err_output
+
+    if action == "block":
+        command = "config exclusionlist add %s %s" % (mac, comment)
+        output = net_connect.send_config_set([command, 'save config', 'y'])
+        if output != "":
+            if any(re.findall(r'error|incorrect', output, re.IGNORECASE)):
+                print output
+            elif "already exists" in output:
+                print "Block of %s already exists on %s" % (mac, wlc['ip'])
+            else:
+                print "%s of %s on %s completed" % (action, mac, wlc['ip'])
+    elif action == "unblock":
+        command = "config exclusionlist delete %s" % (mac)
+        output = net_connect.send_config_set([command, 'save config', 'y'])
+        if "Deleted exclusion-list entry" in output:
+            print "%s of %s on %s completed" % (action, mac, wlc['ip'])
+        else:
+            print "Error %sing of %s on %s. \nThis is probably due to the block not existing, try searching instead" % (action, mac, wlc['ip'])
+    elif action == "search":
+        command = "show exclusionlist"
+        output = net_connect.send_command(command)
+        if re.search(mac, output, re.IGNORECASE):
+            print "MAC address %s is blocked on controller with ip %s" % (mac, wlc['ip'])
+        else:
+            print "MAC address %s is NOT blocked on controller with ip %s" % (mac, wlc['ip'])
+
+    net_connect.disconnect()
+
+
 
 for wlc in wlcs:
-    if args.action == "block":
-        output = send_command(args.mac, "add", args.description, wlc, uname, pword)
-        error_stuff(output, "add", args.mac, wlc)
-    elif args.action == "unblock":
-        output = send_command(args.mac, "delete", "", wlc, uname, pword)
-        error_stuff(output, "delete", args.mac, wlc)
+    a = Router(wlc, uname, pword)
+    routers[wlc] = {
+        'device_type' : a.type,
+        'ip' : a.wlc,
+        'username' : a.username,
+        'password' : a.password,
+        'timeout' : a.timeout,
+    }
+    output = thread.submit(send_it, routers[wlc], args.action, args.mac, args.comment)
