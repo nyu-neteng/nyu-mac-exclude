@@ -11,17 +11,9 @@ import validators
 
 class MyParser(argparse.ArgumentParser):
     def error(self, message):
-        sys.stderr.write('Error: %s\n' % message)
+        sys.stderr.write("Error: %s\n" % message)
         self.print_help()
         sys.exit(2)
-
-class Router(object):
-    def __init__(self, wlc, username, password):
-        self.type = 'cisco_wlc'
-        self.wlc = wlc
-        self.username = username
-        self.password = password
-        self.timeout = 15
 
 cparser = SafeConfigParser(allow_no_value=True)
 cparser.read(['secret.conf', 'wlcs.conf'])
@@ -40,7 +32,7 @@ aparser.add_argument('-a', '--action', required=True, choices=['block','unblock'
 aparser.add_argument('-c', '--comment', required=False, help="ticket information")
 
 if len(sys.argv) == 1:
-    print('Error: No arguments supplied')
+    print "Error: No arguments supplied\n"
     aparser.print_help()
     sys.exit(1)
 
@@ -94,12 +86,11 @@ def send_it(wlc, action, mac, comment):
 
 
 for wlc in wlcs:
-    a = Router(wlc, uname, pword)
     routers[wlc] = {
-        'device_type' : a.type,
-        'ip' : a.wlc,
-        'username' : a.username,
-        'password' : a.password,
-        'timeout' : a.timeout,
+        'device_type' : 'cisco_wlc_ssh',
+        'ip' : wlc,
+        'username' : uname,
+        'password' : pword,
+        'timeout' : 15,
     }
     output = thread.submit(send_it, routers[wlc], args.action, args.mac, args.comment)
