@@ -37,6 +37,9 @@ or
 ```
 MAC address FF:FF:FF:FF:FF:FF is NOT blocked on controller with ip 1.1.1.1
 ```
+***Auditing***
+
+Will output errors/information to stdout and syslog. Syslog output searchable via nyu-mac-exclude tag.
 
 ## License
 This project is published with the <a href="https://opensource.org/licenses/MIT" target="_blank">MIT license</a>.
